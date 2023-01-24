@@ -8,7 +8,7 @@ FROM docker.io/bitnami/minideb:bullseye as builder
 COPY --link --from=ghcr.io/bitcompat/render-template:1.0.3 /opt/bitnami/ /opt/bitnami/
 COPY --link --from=ghcr.io/bitcompat/gosu:1.14.0 /opt/bitnami/ /opt/bitnami/
 COPY --link --from=ghcr.io/bitcompat/wait-for-port:1.0.3-bullseye-r1 /opt/bitnami/ /opt/bitnami/
-COPY --link --from=ghcr.io/bitcompat/java:11.0.16.1-1-bullseye-r1 /opt/bitnami/java/ /opt/bitnami/java/
+COPY --link --from=ghcr.io/bitcompat/java:11.0.18-10-bullseye-r1 /opt/bitnami/java/ /opt/bitnami/java/
 
 ARG JAVA_EXTRA_SECURITY_DIR="/bitnami/java/extra-security"
 
