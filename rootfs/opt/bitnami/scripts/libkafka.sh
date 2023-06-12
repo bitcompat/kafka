@@ -56,6 +56,7 @@ kafka_common_conf_set() {
 # Backwards compatibility measure to configure the TLS truststore locations
 # Globals:
 #   KAFKA_CONF_FILE
+#   KAFKA_ZK_CONF_FILE
 # Arguments:
 #   None
 # Returns:
@@ -99,6 +100,7 @@ kafka_configure_default_truststore_locations() {
 # Set a configuration setting value to server.properties
 # Globals:
 #   KAFKA_CONF_FILE
+#   KAFKA_ZK_CONF_FILE
 # Arguments:
 #   $1 - key
 #   $2 - values (array)
@@ -106,7 +108,7 @@ kafka_configure_default_truststore_locations() {
 #   None
 #########################
 kafka_server_conf_set() {
-    kafka_common_conf_set "$KAFKA_CONF_FILE" "$@"
+    kafka_common_conf_set "$(kafka_get_conf_file)" "$@"
 }
 
 ########################
@@ -239,28 +241,64 @@ kafka_validate() {
     }
 
     if is_boolean_yes "$KAFKA_ENABLE_KRAFT"; then
-        if [[ -n "$KAFKA_CFG_BROKER_ID" ]]; then
-            warn "KAFKA_CFG_BROKER_ID Must match what is set in KAFKA_CFG_CONTROLLER_QUORUM_VOTERS"
-        else
-            print_validation_error "KRaft requires KAFKA_CFG_BROKER_ID to be set for the quorum controller"
+        if [[ -n "${KAFKA_CFG_NODE_ID:-}" ]] || [[ -n "${KAFKA_CFG_CONTROLLER_QUORUM_VOTERS:-}" ]]; then
+            if [[ -z "${KAFKA_CFG_NODE_ID:-}" ]]; then
+                print_validation_error "KRaft requires KAFKA_CFG_NODE_ID to be set for the quorum controller"
+            fi
+            if [[ -z "$KAFKA_CFG_CONTROLLER_QUORUM_VOTERS" ]]; then
+                print_validation_error "KRaft requires KAFKA_CFG_CONTROLLER_QUORUM_VOTERS to be set"
+            fi
+
+            old_IFS=$IFS
+            IFS=','
+            read -r -a voters <<< "$KAFKA_CFG_CONTROLLER_QUORUM_VOTERS"
+            IFS=${old_IFS}
+            node_id_matched=false
+            for voter in "${voters[@]}"; do
+                if [[ "$voter" == *"$KAFKA_CFG_NODE_ID"* ]]; then
+                    node_id_matched=true
+                    break
+                fi
+            done
+
+            if [[ "$node_id_matched" == false ]]; then
+                warn "KAFKA_CFG_NODE_ID must match what is set in KAFKA_CFG_CONTROLLER_QUORUM_VOTERS"
+            fi
         fi
-        if [[ -n "$KAFKA_CFG_CONTROLLER_QUORUM_VOTERS" ]]; then
-            warn "KAFKA_CFG_CONTROLLER_QUORUM_VOTERS must match brokers set with KAFKA_CFG_BROKER_ID"
-        else
-            print_validation_error "KRaft requires KAFKA_CFG_CONTROLLER_QUORUM_VOTERS to be set"
+
+        if [[ -n "${KAFKA_CFG_PROCESS_ROLES:-}" ]]; then
+            old_IFS=$IFS
+            IFS=','
+            read -r -a roles <<< "$KAFKA_CFG_PROCESS_ROLES"
+            IFS=${old_IFS}
+            controller_exists=false
+            for val in "${roles[@]}";
+            do
+            if [[ "$val" == "controller" ]]; then
+                controller_exists=true
+                break
+            fi
+            done
+            if [[ "$controller_exists" == false ]]; then
+                warn "KAFKA_CFG_PROCESS_ROLES must include 'controller' for KRaft"
+            fi
         fi
-        if [[ -z "$KAFKA_CFG_CONTROLLER_LISTENER_NAMES" ]]; then
-            print_validation_error "KRaft requires KAFKA_CFG_CONTROLLER_LISTENER_NAMES to be set"
-        fi
-        if [[ -n "$KAFKA_CFG_PROCESS_ROLES" ]]; then
-            warn "KAFKA_CFG_PROCESS_ROLES must include 'controller' for KRaft"
-        else
-            print_validation_error "KAFKA_CFG_PROCESS_ROLES must be set to enable KRaft m,model"
-        fi
-        if [[ -n "$KAFKA_CFG_LISTENERS" ]]; then
-            warn "KAFKA_CFG_LISTENERS must include a listener for CONTROLLER"
-        else
-            print_validation_error "KRaft requires KAFKA_CFG_LISTENERS to be set"
+        if [[ -n "${KAFKA_CFG_LISTENERS:-}" ]]; then
+            old_IFS=$IFS
+            IFS=','
+            read -r -a listener <<< "$KAFKA_CFG_LISTENERS"
+            IFS=${old_IFS}
+            controller_exists=false
+            for val in "${listener[@]}";
+            do
+            if [[ $val == *"CONTROLLER"* ]]; then
+                controller_exists=true
+                break
+            fi
+            done
+            if [[ "$controller_exists" == false ]]; then
+                warn "KAFKA_CFG_LISTENERS must include a listener for CONTROLLER"
+            fi
         fi
     fi
 
@@ -333,7 +371,6 @@ kafka_validate() {
     check_multi_value "KAFKA_TLS_CLIENT_AUTH" "none requested required"
     [[ "$error_code" -eq 0 ]] || return "$error_code"
 }
-
 ########################
 # Generate JAAS authentication file
 # Globals:
@@ -382,7 +419,7 @@ KafkaServer {
    user_${KAFKA_INTER_BROKER_USER:-}="${KAFKA_INTER_BROKER_PASSWORD:-}"
 EOF
                 for ((i = 0; i < ${#users[@]}; i++)); do
-                    if [[ "$i" -eq "(( ${#users[@]} - 1 ))" ]]; then
+                    if [[ "$i" = "$(( ${#users[@]} - 1 ))" ]]; then
                         cat >>"${KAFKA_CONF_DIR}/kafka_jaas.conf" <<EOF
    user_${users[i]:-}="${passwords[i]:-}";
 EOF
@@ -412,7 +449,7 @@ KafkaServer {
 EOF
             if [[ "${KAFKA_CFG_SASL_ENABLED_MECHANISMS:-}" =~ PLAIN ]]; then
                 for ((i = 0; i < ${#users[@]}; i++)); do
-                    if [[ "$i" -eq "(( ${#users[@]} - 1 ))" ]]; then
+                    if [[ "$i" = "$(( ${#users[@]} - 1 ))" ]]; then
                         cat >>"${KAFKA_CONF_DIR}/kafka_jaas.conf" <<EOF
    user_${users[i]:-}="${passwords[i]:-}";
 EOF
@@ -515,8 +552,27 @@ kafka_configure_ssl() {
     ! is_empty_value "$KAFKA_CERTIFICATE_PASSWORD" && configure_both ssl.key.password "$KAFKA_CERTIFICATE_PASSWORD"
     if [[ "$KAFKA_TLS_TYPE" = "PEM" ]]; then
         file_to_multiline_property() {
-            awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}' <"${1:?missing file}"
+            awk 'NR > 1{print line"\\n\\"}{line=$0;}END{print $0" "}' <"${1:?missing file}"
         }
+        remove_previous_cert_value() {
+            local key="${1:?missing key}"
+            files=(
+                "$(kafka_get_conf_file)"
+                "${KAFKA_CONF_DIR}/producer.properties"
+                "${KAFKA_CONF_DIR}/consumer.properties"
+            )
+            for file in "${files[@]}"; do
+                if grep -q "^[#\\s]*$key\s*=.*" "$file"; then
+                    # Delete all lines from the certificate beginning to its end
+                    sed -i "/^[#\\s]*$key\s*=.*-----BEGIN/,/-----END/d" "$file"
+                fi
+            done
+        }
+        # We need to remove the previous cert value
+        # kafka_common_conf_set uses replace_in_file, which can't match multiple lines
+        remove_previous_cert_value ssl.keystore.key
+        remove_previous_cert_value ssl.keystore.certificate.chain
+        remove_previous_cert_value ssl.truststore.certificates
         configure_both ssl.keystore.key "$(file_to_multiline_property "${KAFKA_CERTS_DIR}/kafka.keystore.key")"
         configure_both ssl.keystore.certificate.chain "$(file_to_multiline_property "${KAFKA_CERTS_DIR}/kafka.keystore.pem")"
         configure_both ssl.truststore.certificates "$(file_to_multiline_property "${kafka_truststore_location}")"
@@ -699,7 +755,9 @@ kafka_configure_from_environment_variables() {
         done
 
         value="${!var}"
-        kafka_server_conf_set "$key" "$value"
+        if [[ -n "$value" ]]; then
+            kafka_server_conf_set "$key" "$value"
+        fi
     done
 }
 
@@ -740,7 +798,7 @@ kraft_initialize() {
     fi
 
     info "Formatting storage directories to add metadata..."
-    debug_execute "$KAFKA_HOME/bin/kafka-storage.sh" format --config "$KAFKA_CONF_FILE" --cluster-id "$KAFKA_KRAFT_CLUSTER_ID" --ignore-formatted
+    debug_execute "$KAFKA_HOME/bin/kafka-storage.sh" format --config "$(kafka_get_conf_file)" --cluster-id "$KAFKA_KRAFT_CLUSTER_ID" --ignore-formatted
 }
 
 ########################
@@ -808,7 +866,7 @@ kafka_initialize() {
         fi
         # Remove security.inter.broker.protocol if KAFKA_CFG_INTER_BROKER_LISTENER_NAME is configured
         if [[ -n "${KAFKA_CFG_INTER_BROKER_LISTENER_NAME:-}" ]]; then
-            remove_in_file "$KAFKA_CONF_FILE" "security.inter.broker.protocol" false
+          remove_in_file "$(kafka_get_conf_file)" "security.inter.broker.protocol" false
         fi
         kafka_configure_producer_consumer_message_sizes
     fi
@@ -894,4 +952,21 @@ is_kafka_not_running() {
 kafka_stop() {
     ! is_kafka_running && return
     stop_service_using_pid "$KAFKA_PID_FILE" TERM
+}
+
+########################
+# Get configuration file to use
+# Globals:
+#   KAFKA_ENABLE_KRAFT
+# Arguments:
+#   None
+# Returns:
+#   Path to the conf file to use
+#########################
+kafka_get_conf_file() {
+    if is_boolean_yes "$KAFKA_ENABLE_KRAFT"; then
+        echo "$KAFKA_CONF_FILE"
+    else
+        echo "$KAFKA_ZK_CONF_FILE"
+    fi
 }
