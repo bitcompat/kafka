@@ -14,5 +14,5 @@ jobs:
         KAFKA_VERSION=3.4.1 # renovate: datasource=github-tags depName=apache/kafka
         SCALA_VERSION=2.13
       version: 3.4.1 # renovate: datasource=github-tags depName=apache/kafka
-      revision: '2'
+      revision: '3'
     secrets: inherit
