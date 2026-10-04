@@ -3,12 +3,12 @@
 ARG KAFKA_VERSION
 ARG SCALA_VERSION
 
-FROM docker.io/bitnami/minideb:bullseye as builder
+FROM docker.io/bitnami/minideb:trixie as builder
 
-COPY --link --from=ghcr.io/bitcompat/render-template:1.0.3 /opt/bitnami/ /opt/bitnami/
-COPY --link --from=ghcr.io/bitcompat/gosu:1.14.0 /opt/bitnami/ /opt/bitnami/
-COPY --link --from=ghcr.io/bitcompat/wait-for-port:1.0.3-bullseye-r1 /opt/bitnami/ /opt/bitnami/
-COPY --link --from=ghcr.io/bitcompat/java:11.0.18-10-bullseye-r1 /opt/bitnami/java/ /opt/bitnami/java/
+COPY --link --from=ghcr.io/bitcompat/render-template:1.0.3-trixie /opt/bitnami/ /opt/bitnami/
+COPY --link --from=ghcr.io/bitcompat/gosu:1.18.0-trixie /opt/bitnami/ /opt/bitnami/
+COPY --link --from=ghcr.io/bitcompat/wait-for-port:1.0.10-trixie /opt/bitnami/ /opt/bitnami/
+COPY --link --from=ghcr.io/bitcompat/java:11-trixie /opt/bitnami/java/ /opt/bitnami/java/
 
 ARG JAVA_EXTRA_SECURITY_DIR="/bitnami/java/extra-security"
 
@@ -38,7 +38,9 @@ RUN <<EOT bash
     mv /opt/bitnami/kafka/LICENSE /opt/bitnami/kafka/licenses/kafka-${KAFKA_VERSION}.txt
 EOT
 
-FROM docker.io/bitnami/minideb:bullseye as stage-0
+FROM docker.io/bitnami/minideb:trixie as stage-0
+
+ARG KAFKA_VERSION
 
 COPY --link --from=builder /opt/bitnami /opt/bitnami
 
@@ -52,16 +54,16 @@ RUN <<EOT bash
     ln -sv /opt/bitnami/scripts/kafka/run.sh /run.sh
 EOT
 
-LABEL org.opencontainers.image.ref.name="${SERVER_VERSION}-debian-11-r1" \
+LABEL org.opencontainers.image.ref.name="${KAFKA_VERSION}-trixie" \
       org.opencontainers.image.title="kafka" \
-      org.opencontainers.image.version="${SERVER_VERSION}"
+      org.opencontainers.image.version="${KAFKA_VERSION}"
 
 ARG TARGETARCH
 ENV HOME="/" \
     OS_ARCH="${TARGETARCH}" \
-    OS_FLAVOUR="debian-11" \
+    OS_FLAVOUR="debian-13" \
     OS_NAME="linux" \
-    APP_VERSION="${SERVER_VERSION}" \
+    APP_VERSION="${KAFKA_VERSION}" \
     BITNAMI_APP_NAME="kafka" \
     JAVA_HOME="/opt/bitnami/java" \
     PATH="/opt/bitnami/java/bin:/opt/bitnami/common/bin:/opt/bitnami/kafka/bin:$PATH"
