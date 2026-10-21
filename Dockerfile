@@ -25,7 +25,7 @@ RUN <<EOT bash
     set -eux
     mkdir -p /opt/src
     cd /opt/src
-    curl -fsSL -o kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz https://archive.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz ||
+    curl -fsSL -o kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz ||
       curl -fsSL -o kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz
     tar -xzf kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz
 
