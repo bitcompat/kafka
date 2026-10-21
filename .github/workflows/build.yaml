@@ -11,7 +11,7 @@ jobs:
     with:
       name: Build package - Kafka
       build-args: |
-        KAFKA_VERSION=3.4.1 # renovate: datasource=github-tags depName=apache/kafka
+        KAFKA_VERSION=3.4.1
         SCALA_VERSION=2.13
       version: 3.4.1 # renovate: datasource=github-tags depName=apache/kafka
     secrets: inherit
